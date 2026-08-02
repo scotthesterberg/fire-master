@@ -1587,9 +1587,9 @@ class FireProjectionsEngine:
             ira_total += rrsp_monthly
             streams.append(IncomeStream(label="RRSP drawdown", monthly=rrsp_monthly, color="#4d8eff"))
 
-        # Runway uses only ongoing income — temporary sources end soon
+        # Monthly deficit compares total monthly active income (and SEPP/RRSP) against burn
         income_total = ongoing_income + temp_income
-        deficit = monthly_burn - ongoing_income - ira_total
+        deficit = monthly_burn - income_total - ira_total
         cash = breakdown.liquid
         runway = int(cash / deficit) if deficit > 0 else None
 
