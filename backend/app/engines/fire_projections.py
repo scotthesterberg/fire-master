@@ -852,6 +852,7 @@ class FireProjectionsEngine:
         today = date.today()
         dob = config.date_of_birth
         current_age = self._compute_age(config, today)
+        retirement_date = self._get_retirement_date(config)
 
         # SEPP / IRA-split assumptions from custom_assumptions (inactive unless configured)
         # ALL RATES ARE REAL (after inflation) — see projection config block below.
@@ -1094,37 +1095,46 @@ class FireProjectionsEngine:
             # the bridge chart's first point and desyncing from Runway's calendar months.
             raw_offset = (cf.date.year - today.year) * 12 + (cf.date.month - today.month)
 
-            if cf.is_recurring and cf.recurrence == "monthly":
-                start_offset = max(0, raw_offset)  # clamp to today: only remaining occurrences
-                end_offset = total_months
-                if cf.end_date:
-                    cal_end = (cf.end_date.year - today.year) * 12 + (cf.end_date.month - today.month)
-                    end_offset = min(end_offset, max(0, cal_end))
-                if end_offset <= 0:
-                    continue  # recurring window is entirely in the past
-                for mo in range(start_offset, end_offset):
-                    cf_by_month.setdefault(mo, []).append((cf.name, amount))
-                cf_labels_by_month.setdefault(start_offset, []).append(cf.name)
+            if cf.is_recurring:
+                step_months = 1
+                if cf.recurrence == "quarterly":
+                    step_months = 3
+                elif cf.recurrence == "annual":
+                    step_months = 12
+
+                end_dt = cf.end_date or (today + relativedelta(months=total_months))
+                curr_dt = cf.date
+                first = True
+                while curr_dt <= end_dt:
+                    mo_offset = (curr_dt.year - today.year) * 12 + (curr_dt.month - today.month)
+                    if 0 <= mo_offset < total_months:
+                        cf_by_month.setdefault(mo_offset, []).append((cf.name, amount))
+                        if first:
+                            cf_labels_by_month.setdefault(mo_offset, []).append(cf.name)
+                            first = False
+                    curr_dt += relativedelta(months=step_months)
             else:
                 # A one-off event dated before today already happened — don't pull it
                 # forward to month 0 (that would double-count e.g. a finished severance).
                 if raw_offset < 0:
                     continue
-                cf_by_month.setdefault(raw_offset, []).append((cf.name, amount))
-                cf_labels_by_month.setdefault(raw_offset, []).append(cf.name)
+                if raw_offset < total_months:
+                    cf_by_month.setdefault(raw_offset, []).append((cf.name, amount))
+                    cf_labels_by_month.setdefault(raw_offset, []).append(cf.name)
 
-        # Build income source schedule (non-salary, by month offset from today)
+        # Build income source schedule (by month offset from today)
         def _source_income_at_month(m: int) -> float:
-            """Monthly non-salary income from active sources at month offset m."""
+            """Monthly income from active sources at month offset m."""
             target = today + relativedelta(months=m)
             total = 0.0
             for src in sources:
-                if src.income_type.value in ("salary", "bonus", "side_hustle"):
-                    continue
                 if src.start_date and target < src.start_date:
                     continue
                 if src.end_date and target > src.end_date:
                     continue
+                if src.income_type.value in ("salary", "bonus", "side_hustle"):
+                    if retirement_date and target >= retirement_date and not src.end_date:
+                        continue
                 monthly = src.annual_amount / 12.0 / 100.0  # cents to dollars/mo
                 # Apply occupancy haircut to matched rental sources (every rental
                 # source when occupancy_source_match is empty)
@@ -1548,15 +1558,17 @@ class FireProjectionsEngine:
         temp_income = 0.0
         colors = ["#00d4aa", "#06b6d4", "#ffc04d", "#f97316", "#ec4899"]
         ci = 0
+        retirement_date = self._get_retirement_date(config)
         for src in sources:
-            if src.income_type.value in ("salary", "bonus", "side_hustle"):
-                continue
             if src.start_date and today < src.start_date:
                 continue
             if src.end_date and today > src.end_date:
                 continue
+            if src.income_type.value in ("salary", "bonus", "side_hustle"):
+                if retirement_date and today >= retirement_date and not src.end_date:
+                    continue
             mo = src.annual_amount / 12.0 / 100.0
-            is_temp = src.end_date is not None
+            is_temp = src.end_date is not None or (retirement_date is not None and src.income_type.value in ("salary", "bonus", "side_hustle"))
             label = f"{src.name} (temp)" if is_temp else src.name
             streams.append(IncomeStream(label=label, monthly=round(mo, 0), color=colors[ci % len(colors)]))
             if is_temp:

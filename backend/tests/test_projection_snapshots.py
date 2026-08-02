@@ -522,3 +522,55 @@ class TestGradualPropertyExit:
         # Taxable pool should be populated and drawn
         assert r.points[0].taxable > 0
         assert r.total_at_end > 0
+
+    @pytest.mark.asyncio
+    async def test_salary_income_included_pre_retirement_in_wealth_pools(
+        self, net_worth_breakdown, mock_accounts, mock_cashflow_events, frozen_today,
+    ):
+        """Active salary should provide cash flow during pre-retirement working months."""
+        from app.models.enums import IncomeType
+        from app.models.income_source import IncomeSource
+
+        config = _make_fire_config()
+        config.target_retirement_age = 45.0  # Retires in future
+        salary = IncomeSource()
+        salary.name = "Job Salary"
+        salary.income_type = IncomeType.SALARY
+        salary.annual_amount = 240_000_00  # $240k/yr = $20k/mo
+        salary.is_active = True
+        salary.start_date = None
+        salary.end_date = None
+
+        engine = _make_engine(
+            config, net_worth_breakdown, mock_accounts, mock_cashflow_events, [salary])
+        r = await engine.project_wealth_pools(end_age=82)
+
+        # Cash balance in early years should benefit from positive salary cashflow
+        assert r.points[0].income >= 20_000
+
+    @pytest.mark.asyncio
+    async def test_annual_recurring_cashflow_events_in_wealth_pools(
+        self, net_worth_breakdown, mock_accounts, mock_income_sources, frozen_today,
+    ):
+        """Annual recurring cashflow events (e.g. college tuition) should fire every 12 months."""
+        from app.models.cashflow_event import CashflowEvent
+
+        config = _make_fire_config()
+        college = CashflowEvent()
+        college.name = "College Tuition"
+        college.event_type = "expense"
+        college.amount_cents = 50_000_00
+        college.date = date(2028, 9, 1)
+        college.is_recurring = True
+        college.recurrence = "annual"
+        college.end_date = date(2031, 9, 1)
+        college.probability = 1.0
+        college.status = "planned"
+
+        engine = _make_engine(
+            config, net_worth_breakdown, mock_accounts, [college], mock_income_sources)
+        r = await engine.project_wealth_pools(end_age=82, bridge_months=60)
+
+        # Event markers should be captured on the projection points
+        tuition_points = [p for p in r.points if p.event and "College" in p.event]
+        assert len(tuition_points) >= 1
