@@ -276,18 +276,40 @@ async def spending_sensitivity(
     ca = config.custom_assumptions or {}
 
     # Extract housing ingredients from effective config (scenario-aware).
-    # LEGACY single-property keys (miami_sale / park_city / sauvie_sale) — superseded
-    # by property_sales; read with neutral defaults for author back-compat.
+    # Check generic property_sales list first, falling back to legacy single-property keys
+    # (miami_sale / park_city / sauvie_sale) for backwards compatibility.
+    property_sales = ca.get("property_sales", []) or []
+    primary_sale = next((s for s in property_sales if s.get("bucket") in ("primary", "miami") or s.get("re_bucket") in ("primary", "miami") or s.get("key") in ("primary", "primary_residence")), None)
+    income_sale = next((s for s in property_sales if s.get("bucket") in ("income", "sauvie") or s.get("re_bucket") in ("income", "sauvie") or s.get("key") in ("income", "income_property")), None)
+    secondary_sale = next((s for s in property_sales if s.get("bucket") in ("secondary", "park_city") or s.get("re_bucket") in ("secondary", "park_city") or s.get("key") in ("secondary", "secondary_property")), None)
+
     miami_cfg = ca.get("miami_sale", {})
     pc_cfg = ca.get("park_city", {})
     proj_cfg = ca.get("projection", {})
-    primary_all_in = miami_cfg.get("monthly_cost", 0)
     primary_pi = proj_cfg.get("primary_property_mortgage_pi", 0)
-    income_property_cost = ca.get("sauvie_sale", {}).get("monthly_cost_saved", 0)
-    secondary_property_cost = pc_cfg.get("monthly_cost", 0)
-    post_sale_rent = miami_cfg.get("post_sale_rent", 0)
+
+    if primary_sale:
+        primary_all_in = primary_sale.get("monthly_cost", primary_pi)
+        post_sale_rent = primary_sale.get("post_sale_rent", 0)
+    else:
+        primary_all_in = miami_cfg.get("monthly_cost", primary_pi if primary_pi > 0 else 0)
+        post_sale_rent = miami_cfg.get("post_sale_rent", 0)
+
+    if primary_all_in == 0 and primary_pi > 0:
+        primary_all_in = primary_pi
+
+    if income_sale:
+        income_property_cost = income_sale.get("monthly_cost", 0)
+    else:
+        income_property_cost = ca.get("sauvie_sale", {}).get("monthly_cost_saved", 0)
+
+    if secondary_sale:
+        secondary_property_cost = secondary_sale.get("monthly_cost", 0)
+    else:
+        secondary_property_cost = pc_cfg.get("monthly_cost", 0)
+
     base_monthly = round(base_spending / 12 / 100, 0)
-    non_housing = base_monthly - primary_all_in - income_property_cost - secondary_property_cost
+    non_housing = max(0, base_monthly - primary_all_in - income_property_cost - secondary_property_cost)
 
     # Center on current spending, ± levels//2 steps
     half = levels // 2

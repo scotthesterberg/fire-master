@@ -488,3 +488,37 @@ class TestGradualPropertyExit:
         # taxable draws cover the burn
         floor_months = [p for p in r.points if p.cash == 0 and (p.taxable_draw or 0) > 0]
         assert len(floor_months) >= 3, "expected cash pinned at zero by repair draws"
+
+    @pytest.mark.asyncio
+    async def test_unconfigured_sepp_defaults_to_retirement_pool(
+        self, net_worth_breakdown, mock_accounts, mock_cashflow_events, mock_income_sources, frozen_today,
+    ):
+        """When a user has no custom_assumptions['sepp'], the engine should default
+        the IRA growth pool (ira_b) to breakdown.retirement so retirement assets grow
+        and can be drawn post-59.5."""
+        config = _make_fire_config()
+        config.custom_assumptions = {}  # No sepp or property sales configured
+        engine = _make_engine(
+            config, net_worth_breakdown, mock_accounts, mock_cashflow_events, mock_income_sources)
+        r = await engine.project_wealth_pools(end_age=82)
+
+        # First point should show IRA growth starting with the breakdown's retirement amount
+        assert r.points[0].ira_growth >= net_worth_breakdown.retirement
+
+    @pytest.mark.asyncio
+    async def test_taxable_pool_draws_without_property_sales(
+        self, net_worth_breakdown, mock_accounts, mock_cashflow_events, mock_income_sources, frozen_today,
+    ):
+        """When taxable_pool is configured but property_sales is empty, taxable funds
+        should still be drawn to bridge pre-59.5 cash deficits."""
+        config = _make_fire_config()
+        config.custom_assumptions = {
+            "taxable_pool": {"starting_balance": 500_000, "return_rate": 0.065},
+        }
+        engine = _make_engine(
+            config, net_worth_breakdown, mock_accounts, mock_cashflow_events, mock_income_sources)
+        r = await engine.project_wealth_pools(end_age=82)
+
+        # Taxable pool should be populated and drawn
+        assert r.points[0].taxable > 0
+        assert r.total_at_end > 0

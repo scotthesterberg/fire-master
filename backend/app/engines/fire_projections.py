@@ -967,7 +967,8 @@ class FireProjectionsEngine:
         # Pool starting balances (dollars)
         cash = breakdown.liquid
         ira_a = float(ira_a_start)
-        ira_b = float(ira_b_start)
+        # Default retirement assets to IRA-B (growth pool) if no SEPP split is explicitly defined
+        ira_b = float(ira_b_start) if (ira_b_start > 0 or ira_a_start > 0) else float(breakdown.retirement)
         rrsp_remaining = float(rrsp_total_available)
 
         # --- Taxable brokerage pool + generic property sales (additive, opt-in) ---
@@ -981,7 +982,7 @@ class FireProjectionsEngine:
         taxable = float(taxable_cfg.get("starting_balance", 0) or 0)
         taxable_rate_m = (taxable_cfg.get("return_rate", 0.065) or 0.0) / 12  # real annual → monthly
         property_sales = (config.custom_assumptions or {}).get("property_sales", []) or []
-        use_generic_sales = bool(property_sales)
+        use_generic_sales = bool(property_sales) or taxable > 0 or "taxable_pool" in (config.custom_assumptions or {})
         sales_by_month: dict[int, list[dict]] = {}
         generic_sold: dict[str, bool] = {}
         for _s in property_sales:

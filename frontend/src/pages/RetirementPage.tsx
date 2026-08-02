@@ -487,21 +487,36 @@ function SpendingSensitivityCard({
             What's in the ${displayBase.toLocaleString()}
           </div>
           <div className="space-y-1.5 text-xs">
-            <div className="flex justify-between">
-              <span className="text-[var(--text-secondary)]">Primary property housing</span>
-              <span className="font-mono text-[var(--text-primary)]">${b.primary_property_all_in.toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between pl-3">
-              <span className="text-[var(--text-secondary)] opacity-60">P&I ${b.primary_property_pi.toLocaleString()} + other ${(b.primary_property_all_in - b.primary_property_pi).toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-[var(--text-secondary)]">Income property</span>
-              <span className="font-mono text-[var(--text-primary)]">${b.income_property_cost.toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-[var(--text-secondary)]">Secondary property</span>
-              <span className="font-mono text-[var(--text-primary)]">${b.secondary_property_cost.toLocaleString()}</span>
-            </div>
+            {b.primary_property_all_in > 0 && (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-[var(--text-secondary)]">Primary property housing</span>
+                  <span className="font-mono text-[var(--text-primary)]">${b.primary_property_all_in.toLocaleString()}</span>
+                </div>
+                {b.primary_property_pi > 0 && (
+                  <div className="flex justify-between pl-3">
+                    <span className="text-[var(--text-secondary)] opacity-60">
+                      P&I ${b.primary_property_pi.toLocaleString()}
+                      {b.primary_property_all_in > b.primary_property_pi
+                        ? ` + other $${(b.primary_property_all_in - b.primary_property_pi).toLocaleString()}`
+                        : ""}
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
+            {b.income_property_cost > 0 && (
+              <div className="flex justify-between">
+                <span className="text-[var(--text-secondary)]">Income property</span>
+                <span className="font-mono text-[var(--text-primary)]">${b.income_property_cost.toLocaleString()}</span>
+              </div>
+            )}
+            {b.secondary_property_cost > 0 && (
+              <div className="flex justify-between">
+                <span className="text-[var(--text-secondary)]">Secondary property</span>
+                <span className="font-mono text-[var(--text-primary)]">${b.secondary_property_cost.toLocaleString()}</span>
+              </div>
+            )}
             <div className="flex justify-between pt-1 border-t border-[var(--border)]/50">
               <span className="text-[var(--text-secondary)] font-medium">Non-housing living</span>
               <span className="font-mono font-bold" style={{ color: nonHousing < 2000 ? "var(--red)" : "var(--text-primary)" }}>
@@ -510,9 +525,18 @@ function SpendingSensitivityCard({
             </div>
           </div>
           <div className="mt-3 text-[10px] text-[var(--text-secondary)] opacity-60 leading-relaxed">
-            After primary property sale: −${b.primary_property_all_in.toLocaleString()} +${b.post_sale_rent.toLocaleString()} rent.
-            After secondary sells: −${b.secondary_property_cost.toLocaleString()}.
-            Healthcare ${healthcare.toLocaleString()}/mo added pre-65, drops at Medicare.
+            {b.primary_property_all_in > 0 && (
+              <span>
+                After primary property sale: −${b.primary_property_all_in.toLocaleString()}
+                {b.post_sale_rent > 0 ? ` +$${b.post_sale_rent.toLocaleString()} rent.` : "."}{" "}
+              </span>
+            )}
+            {b.secondary_property_cost > 0 && (
+              <span>After secondary sells: −${b.secondary_property_cost.toLocaleString()}. </span>
+            )}
+            {healthcare > 0 && (
+              <span>Healthcare ${healthcare.toLocaleString()}/mo added pre-65, drops at Medicare. </span>
+            )}
             Spending phases: 85% at 70, 75% at 80.
           </div>
         </div>

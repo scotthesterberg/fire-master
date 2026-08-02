@@ -18,6 +18,8 @@ from app.models.account import Account
 from app.models.balance_snapshot import BalanceSnapshot
 from app.models.cashflow_event import CashflowEvent
 from app.models.enums import DataSource
+from app.models.fire_config import FireConfig
+from app.models.fire_scenario import FireScenario
 from app.models.income_source import IncomeSource
 from app.models.net_worth_snapshot import NetWorthSnapshot
 from app.models.property import Property
@@ -45,14 +47,11 @@ async def has_real_accounts(db: AsyncSession) -> bool:
 
 async def clear_demo_data(db: AsyncSession) -> dict:
     """Delete every demo-seeded row (accounts + their balance history, income
-    sources, cashflow events) and rebuild net-worth history from whatever real
+    sources, cashflow events, demo scenarios) and rebuild net-worth history from whatever real
     data remains.
 
     Marker-scoped via ``_demo_filter`` — it can NEVER touch real (Monarch) rows.
     Does not commit; the caller owns the transaction. Returns a count summary.
-
-    The FIRE config is intentionally left untouched: it is the user's *plan*, not
-    data, and only they can replace it (under Settings -> Plan).
     """
     demo_accounts = (
         await db.execute(select(Account).where(_demo_filter(Account)))
@@ -97,6 +96,39 @@ async def clear_demo_data(db: AsyncSession) -> dict:
         await db.delete(ev)
         removed_events += 1
 
+    # Demo scenarios
+    demo_scenario_names = [
+        "Baseline — Sell Casita, Downsize at Year 5",
+        "Keep the Desert Casita",
+        "Downsize the Loft Now",
+        "Trim Spending to $11K/mo",
+    ]
+    all_scenarios = (await db.execute(select(FireScenario))).scalars().all()
+    removed_scenarios = 0
+    for sc in all_scenarios:
+        is_demo = sc.name in demo_scenario_names
+        if not is_demo and sc.overrides:
+            ov_ca = sc.overrides.get("custom_assumptions", {})
+            ov_props = ov_ca.get("property_sales", [])
+            if any(p.get("key") in ("desert_casita", "city_loft") for p in ov_props):
+                is_demo = True
+        if is_demo:
+            await db.delete(sc)
+            removed_scenarios += 1
+
+    # Clean demo persona markers and demo properties from FIRE config custom_assumptions
+    cfg_row = (await db.execute(select(FireConfig).limit(1))).scalar_one_or_none()
+    if cfg_row is not None and cfg_row.custom_assumptions:
+        ca = dict(cfg_row.custom_assumptions)
+        if ca.get("demo_persona"):
+            ca.pop("demo_persona", None)
+            if "property_sales" in ca:
+                ca["property_sales"] = [
+                    p for p in ca["property_sales"]
+                    if p.get("key") not in ("desert_casita", "city_loft")
+                ]
+            cfg_row.custom_assumptions = ca
+
     await db.flush()
 
     # Rebuild aggregate net-worth history from whatever balance data is left.
@@ -110,5 +142,6 @@ async def clear_demo_data(db: AsyncSession) -> dict:
         "properties": len(demo_props),
         "income_sources": removed_income,
         "cashflow_events": removed_events,
+        "scenarios": removed_scenarios,
         "net_worth_snapshots": nw_snapshots,
     }
